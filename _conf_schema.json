@@ -1,0 +1,33 @@
+{
+  "check_interval": {
+    "description": "更新检查轮询间隔（秒）",
+    "type": "int",
+    "default": 1800,
+    "hint": "定时检查 Minecraft 是否发布新版本的间隔时间，默认 1800 秒（30 分钟）"
+  },
+  "notify_snapshot": {
+    "description": "是否推送快照版/预览版",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后，Minecraft 发布的快照版 (Snapshot)、预发布版 (Pre-release) 以及候选版 (Release Candidate) 也会推送"
+  },
+  "chat_provider_id": {
+    "description": "用于生成总结的大模型提供商",
+    "type": "string",
+    "default": "",
+    "hint": "留空则使用 AstrBot 当前默认聊天模型提供商",
+    "_special": "select_provider"
+  },
+  "custom_prompt": {
+    "description": "自定义 LLM 总结 Prompt",
+    "type": "text",
+    "default": "你是一个 Minecraft 资讯播报助手。请根据以下 Minecraft 更新日志内容，用生动友好、结构清晰的中文写一份版本更新速报。\n要求：\n1. 突出版本号与版本类型（正式版/快照版）。\n2. 提炼出 3-5 点最核心、玩家最关心的更新亮点或重要改动。\n3. 如果有重要 Bug 修复或技术调整，用简明语言概括 1-2 条。\n4. 总体字数控制在 400 字以内，排版精美，适当使用 Emoji。\n\n更新日志内容：\n{changelog}",
+    "hint": "用于引导 LLM 总结更新日志的提示词，{changelog} 会被替换为实际日志文本"
+  },
+  "subscribers": {
+    "description": "推送目标会话列表 (UMO)",
+    "type": "list",
+    "default": [],
+    "hint": "已订阅更新推送的会话统一标识符列表。通常在群内发送 /mc sub 自动添加，也可在此手动维护"
+  }
+}
