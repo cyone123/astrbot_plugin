@@ -18,6 +18,12 @@
     "hint": "留空则使用 AstrBot 当前默认聊天模型提供商",
     "_special": "select_provider"
   },
+  "max_content_chars": {
+    "description": "送入 LLM 的最大日志字符数",
+    "type": "int",
+    "default": 2500,
+    "hint": "控制截取更新日志的最大字符长度以节省 Token（默认 2500 字符，约 500~600 Tokens）"
+  },
   "custom_prompt": {
     "description": "自定义 LLM 总结 Prompt",
     "type": "text",

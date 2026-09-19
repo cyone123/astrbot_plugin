@@ -122,7 +122,7 @@ class MinecraftUpdatePlugin(Star):
         return None
 
     def _clean_html(self, raw_html: str) -> str:
-        """清洗 HTML 内容为纯文本结构"""
+        """清洗 HTML 内容为纯文本结构，去除冗余空行与孤立符号"""
         text = re.sub(r'<(script|style).*?</\1>', '', raw_html, flags=re.DOTALL | re.IGNORECASE)
         text = re.sub(r'</?(h[1-6]|p|div|section|article)[^>]*>', '\n', text, flags=re.IGNORECASE)
         text = re.sub(r'<li[^>]*>', '\n- ', text, flags=re.IGNORECASE)
@@ -130,9 +130,14 @@ class MinecraftUpdatePlugin(Star):
         text = re.sub(r'<br\s*/?>', '\n', text, flags=re.IGNORECASE)
         text = re.sub(r'<[^>]+>', '', text)
         text = html.unescape(text)
-        lines = [line.strip() for line in text.splitlines()]
-        clean_lines = [l for l in lines if l]
-        return '\n'.join(clean_lines)
+        lines = []
+        for line in text.splitlines():
+            line = line.strip()
+            # 过滤空行或单独的破折号
+            if not line or line == '-':
+                continue
+            lines.append(line)
+        return '\n'.join(lines)
 
     async def _fetch_changelog(self, version_id: str, version_type: str) -> Tuple[str, str, str]:
         """
@@ -215,10 +220,15 @@ class MinecraftUpdatePlugin(Star):
         umo: Optional[str] = None
     ) -> str:
         """调用 LLM 生成更新日志的中文精简总结"""
-        # 截断过长日志（保留前 6000 字符，通常包含全部核心新特性与改动）
-        truncated_changelog = changelog_text[:6000]
-        if len(changelog_text) > 6000:
-            truncated_changelog += "\n\n...(后续大量详细技术细节与 Bug 修复已省略)..."
+        # 智能截断过长日志以节省 Token（默认截取前 2500 字符，对齐至完整换行）
+        max_chars = max(500, int(self.config.get("max_content_chars", 2500)))
+        if len(changelog_text) > max_chars:
+            last_nl = changelog_text.rfind('\n', 0, max_chars)
+            cut_idx = last_nl if last_nl > max(300, max_chars // 2) else max_chars
+            truncated_changelog = changelog_text[:cut_idx].rstrip()
+            truncated_changelog += "\n\n...(为节省 Token，后续详细技术微调与 Bug 列表已自动省略)..."
+        else:
+            truncated_changelog = changelog_text
 
         default_prompt_tmpl = (
             "你是一个 Minecraft 资讯播报助手。请根据以下 Minecraft 更新日志内容，用生动友好、结构清晰的中文写一份版本更新速报。\n"

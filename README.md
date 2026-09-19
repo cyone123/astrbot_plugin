@@ -44,6 +44,7 @@
 | --- | --- | --- | --- |
 | `check_interval` | 整数 (int) | `1800` | 更新检查轮询间隔（秒），默认 30 分钟 |
 | `notify_snapshot` | 布尔 (bool) | `false` | 是否推送快照版 / 预览版（默认仅推送正式版） |
+| `max_content_chars` | 整数 (int) | `2500` | 送入 LLM 的最大日志字符数（约 500~600 Tokens，控制消耗） |
 | `chat_provider_id` | 提供商选取 | `""` | 用于总结的 LLM 提供商，留空则使用当前默认模型 |
 | `custom_prompt` | 文本 (text) | 见下文 | 自定义大模型总结提示词模板 |
 | `subscribers` | 列表 (list) | `[]` | 已订阅推送的会话 UMO 列表（可在群内通过 `/mc sub` 自动登记） |

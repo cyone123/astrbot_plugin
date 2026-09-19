@@ -1,6 +1,10 @@
 name: astrbot_plugin_mc_update
 display_name: Minecraft 更新推送
 desc: 自动检测 Minecraft 版本更新，通过 LLM 总结并推送到群聊，支持 QQ 官方机器人及多平台。
-version: v1.0.0
+version: 1.0.0
 author: cyone123
 repo: https://github.com/cyone123/astrbot_plugin
+astrbot_version: ">=4.5.7"
+support_platforms:
+  - qq_official
+  - aiocqhttp
