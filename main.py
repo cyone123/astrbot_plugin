@@ -2,7 +2,8 @@ import asyncio
 import html
 import json
 import re
-from typing import Optional, Tuple, Dict, Any, List
+from datetime import datetime, timedelta
+from typing import Optional, Tuple, Dict, Any, List, Set
 import aiohttp
 
 from astrbot.api.event import filter, AstrMessageEvent, MessageChain
@@ -14,6 +15,82 @@ MANIFEST_URL = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
 ZENDESK_RELEASE_SECTION = "https://feedback.minecraft.net/api/v2/help_center/en-us/sections/360001186971/articles.json"
 ZENDESK_SNAPSHOT_SECTION = "https://feedback.minecraft.net/api/v2/help_center/en-us/sections/360002267532/articles.json"
 WIKI_API_URL = "https://minecraft.wiki/api.php"
+
+
+def _parse_cron_field(field_str: str, min_val: int, max_val: int) -> Set[int]:
+    """解析单个 Cron 字段（支持 *, */n, a-b, a-b/n, a,b,c）"""
+    result: Set[int] = set()
+    for part in field_str.split(','):
+        part = part.strip()
+        if not part:
+            continue
+        if '/' in part:
+            subparts = part.split('/')
+            step = int(subparts[1])
+            if subparts[0] == '*' or subparts[0] == '':
+                start, end = min_val, max_val
+            elif '-' in subparts[0]:
+                start, end = map(int, subparts[0].split('-'))
+            else:
+                start = int(subparts[0])
+                end = max_val
+            result.update(range(start, end + 1, step))
+        elif '-' in part:
+            start, end = map(int, part.split('-'))
+            result.update(range(start, end + 1))
+        elif part == '*':
+            result.update(range(min_val, max_val + 1))
+        else:
+            result.add(int(part))
+    return result
+
+
+def get_next_cron_time(cron_str: str, from_time: Optional[datetime] = None) -> datetime:
+    """
+    计算给定 5 位标准 Cron 表达式（分 时 日 月 周）的下一个触发时间。
+    周字段支持 0-7，其中 0 和 7 均代表周日。
+    """
+    fields = cron_str.strip().split()
+    if len(fields) != 5:
+        raise ValueError("Cron 表达式必须包含 5 个字段（分 时 日 月 周），例如 '*/30 * * * *'")
+
+    minutes = _parse_cron_field(fields[0], 0, 59)
+    hours = _parse_cron_field(fields[1], 0, 23)
+    doms = _parse_cron_field(fields[2], 1, 31)
+    months = _parse_cron_field(fields[3], 1, 12)
+    dows = _parse_cron_field(fields[4], 0, 7)
+    if 7 in dows:
+        dows.add(0)
+
+    curr = (from_time or datetime.now()).replace(second=0, microsecond=0) + timedelta(minutes=1)
+
+    # 循环搜索未来匹配时间点（最多搜索 5 年，约 5*366*1440 次，遇非匹配月份或日期快速跳跃）
+    for _ in range(5 * 366 * 1440):
+        if curr.month not in months:
+            # 快速跳至下月 1 日 0:00
+            if curr.month == 12:
+                curr = datetime(curr.year + 1, 1, 1, 0, 0)
+            else:
+                curr = datetime(curr.year, curr.month + 1, 1, 0, 0)
+            continue
+        if curr.day not in doms:
+            # 快速跳至次日 0:00
+            curr = (curr + timedelta(days=1)).replace(hour=0, minute=0)
+            continue
+        # Python weekday: 0 是周一，6 是周日。Cron dow: 0 是周日，1 是周一，6 是周六
+        cron_dow = (curr.weekday() + 1) % 7
+        if cron_dow not in dows:
+            curr = (curr + timedelta(days=1)).replace(hour=0, minute=0)
+            continue
+        if curr.hour not in hours:
+            # 快速跳至下一个整点
+            curr = (curr + timedelta(hours=1)).replace(minute=0)
+            continue
+        if curr.minute not in minutes:
+            curr += timedelta(minutes=1)
+            continue
+        return curr
+    raise ValueError("在未来 5 年内未找到符合该 Cron 表达式的触发时间")
 
 
 @register(
@@ -97,11 +174,25 @@ class MinecraftUpdatePlugin(Star):
     # ==================== 后台轮询与更新检测 ====================
 
     async def _check_loop(self):
-        """后台轮询主循环"""
+        """后台轮询与 Cron 定时检测主循环"""
         while True:
-            interval = max(60, int(self.config.get("check_interval", 1800)))
+            cron_expr = str(self.config.get("cron_expression", "")).strip()
+            sleep_seconds = None
+
+            if cron_expr:
+                try:
+                    now = datetime.now()
+                    next_time = get_next_cron_time(cron_expr, now)
+                    sleep_seconds = max(1.0, (next_time - now).total_seconds())
+                    logger.info(f"[MC Update] 下次 Cron 检测时间: {next_time.strftime('%Y-%m-%d %H:%M:%S')} (等待 {int(sleep_seconds)} 秒)")
+                except Exception as e:
+                    logger.warning(f"[MC Update] Cron 表达式 '{cron_expr}' 解析失败: {e}，将回退至轮询间隔")
+
+            if sleep_seconds is None:
+                sleep_seconds = max(60, int(self.config.get("check_interval", 1800)))
+
             try:
-                await asyncio.sleep(interval)
+                await asyncio.sleep(sleep_seconds)
                 await self._check_updates()
             except asyncio.CancelledError:
                 break
@@ -429,8 +520,11 @@ class MinecraftUpdatePlugin(Star):
         else:
             # help
             is_sub = umo in subscribers
+            cron_expr = str(self.config.get("cron_expression", "")).strip()
             interval = self.config.get("check_interval", 1800)
             notify_snap = self.config.get("notify_snapshot", False)
+
+            schedule_desc = f"Cron 表达式: {cron_expr}" if cron_expr else f"轮询间隔: {interval} 秒 ({interval // 60} 分钟)"
 
             help_msg = (
                 "⛏️【Minecraft 更新推送助手】\n"
@@ -445,7 +539,7 @@ class MinecraftUpdatePlugin(Star):
                 "------------------------------\n"
                 f"⚙️ 当前状态：\n"
                 f"• 本群订阅状态: {'已订阅 ✅' if is_sub else '未订阅 ❌'}\n"
-                f"• 轮询间隔: {interval} 秒 ({interval // 60} 分钟)\n"
+                f"• 定时检测设置: {schedule_desc}\n"
                 f"• 快照推送: {'开启' if notify_snap else '关闭'}\n"
                 f"• 订阅总数: {len(subscribers)} 个群聊/会话"
             )
