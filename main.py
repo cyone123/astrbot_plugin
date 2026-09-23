@@ -230,6 +230,38 @@ class MinecraftUpdatePlugin(Star):
             lines.append(line)
         return '\n'.join(lines)
 
+    @staticmethod
+    def _match_version_title(version_id: str, title: str) -> bool:
+        """
+        匹配版本 ID 与文章标题。
+        兼容以下命名规则:
+        - 26.4-snapshot-1 <-> Minecraft Java Edition - 26.4 Snapshot 1
+        - 26.3-rc-2 <-> Minecraft Java Edition - 26.3 Release Candidate 2
+        - 26.3-pre-3 <-> Minecraft Java Edition - 26.3 Pre-release 3
+        - 26.3 <-> Minecraft Java Edition - 26.3
+        - 24w46a <-> Minecraft: Java Edition - Snapshot 24w46a
+        """
+        if version_id.lower() in title.lower():
+            return True
+
+        def normalize(s: str) -> list:
+            s = s.lower()
+            s = s.replace('release candidate', 'rc')
+            s = s.replace('pre-release', 'pre').replace('pre release', 'pre')
+            s = re.sub(r'[^a-z0-9.]+', ' ', s)
+            return s.split()
+
+        vt = normalize(version_id)
+        tt = normalize(title)
+        if not vt or not tt:
+            return False
+
+        n_v = len(vt)
+        for i in range(len(tt) - n_v + 1):
+            if tt[i:i + n_v] == vt:
+                return True
+        return False
+
     async def _fetch_changelog(self, version_id: str, version_type: str) -> Tuple[str, str, str]:
         """
         获取指定版本的更新日志与文章链接
@@ -247,8 +279,7 @@ class MinecraftUpdatePlugin(Star):
                     # 匹配标题中含有版本号的文章
                     for art in articles:
                         title = art.get("title", "")
-                        # 兼容形如 "Minecraft Java Edition - 26.3" 或 "24w46a"
-                        if version_id.lower() in title.lower():
+                        if self._match_version_title(version_id, title):
                             art_url = art.get("html_url", "")
                             raw_body = art.get("body", "")
                             cleaned = self._clean_html(raw_body)
